@@ -1,7 +1,7 @@
 "use strict";
 
 // currently hardcording...
-const is_saveLocal = false;
+const is_saveLocal = true;
 const imgPath = 'images/';
 
 //set watchdog is true when 0:00-0:09 and 12:00-12:09
@@ -19,7 +19,7 @@ const twitter = require('twitter');
 // const request = require('request-promise');
 const url = require('url');
 const https = require('https');
-// const fs = require('fs');
+const fs = require('fs');
 
 // config setter
 const config = (() => {
@@ -123,6 +123,49 @@ console.log(payload);return;
 	});
 };
 
+const saveLocal = (fileMeta) => {
+	// save local
+	fs.mkdir(imgPath, (err) => {
+		if (err && err.code !== 'EEXIST'){
+			console.log('code: %s', err.code);
+			console.log('err: %s', err);
+			return false;
+		}
+		fs.mkdir(fileMeta.dest, (err) => {
+			if (err && err.code !== 'EEXIST'){
+				console.log('err_: %s', err_);
+				return false;
+			}
+			fs.writeFileSync(fileMeta.dest + fileMeta.fileName, fileMeta.body, 'binary');
+		});
+	});
+};
+const saveS3 = (fileMeta) => {
+	fileMeta.objectProp.Body = fileMeta.body;
+	aws_s3.putObject(fileMeta.objectProp, (err, result) => {
+		if (err) {
+			console.log('========== err:S3 ==========');
+			console.log(err);
+			return false;
+		} else {
+			console.log('saved');
+			return true;
+		}
+	});
+};
+
+const writeImage = (item) => {
+	if(!item.fileMeta.body) {
+		console.log('err: no body');
+		return false;
+	}
+	if(is_saveLocal) {
+		saveLocal(item.fileMeta);
+	} else {
+		saveS3(item.fileMeta);
+	}
+};
+
 const setRequest = (media, screen_name) => {
 	if (media.url === void 0) { return false; }
 	// set fileName
@@ -148,41 +191,70 @@ const setRequest = (media, screen_name) => {
 		ext : ext,
 		dest : dest,
 		fileName : fileName,
+		contentType : contentType,
 		objectProp : {
 			Bucket: 'niltea-twitter',
 			Key  : dest + fileName,
-			ContentType : contentType
+			ContentType : contentType,
 		}
 	};
 	return {query, fileMeta, postSlack: false};
+};
+
+const fetchImage = (item, isRetry) => {
+	return new Promise((resolve, reject) => {
+		if (!item) resolve('fetchImage: no image');
+
+		const img_url = item.query.url;
+		const query = url.parse(img_url);
+		query.method = item.query.method;
+		query.headers = {
+			'Content-Type': item.fileMeta.contentType
+		};
+
+		const _req = https.request(query, (res) => {
+			res.setEncoding('binary');
+			let data = [];
+			res.on('data', (chunk) => {data.push(new Buffer( chunk, 'binary' ))});
+			res.on('end', () => {
+				if (res.statusCode == 200) {
+					item.fileMeta.body = Buffer.concat(data);
+					writeImage(item);
+					resolve('fetchImage: image Saved');
+				} else {
+					if (!isRetry) { fetchImage(item, true); }
+					else {
+						reject('fetchImage: fetch error ' + res.statusCode);
+					}
+				}
+			});
+		});
+		_req.write('');
+		_req.end();
+	});
 };
 
 // tweet単位でarrayに格納されたid/urlから画像保存
 const saveImages = (media_arr, screen_name, slackText) => {
 	const mediaNum = media_arr.length;
 	let done = 0;
-	let request = [];
 	return new Promise((resolve, reject) => {
-		if (mediaNum === 0) resolve();
+		if (mediaNum === 0) resolve('saveImages: no image');
 
-		// requestデータを積む
 		media_arr.forEach((media, i) => {
-			const _requestItem = setRequest(media, screen_name);
-			if (_requestItem) request.push(_requestItem);
+			const request = setRequest(media, screen_name);
+			// 画像fetch
+			fetchImage(request).then(() => {
+				// 終了したらカウントアップ、全件終了したらSlack投稿&resolveする
+				done += 1;
+				console.log('saveImages - done: %s / total: %s', done, mediaNum);
+				if (done >= mediaNum) {
+					// postSlack(generateSlackPayload(slackText));
+					resolve('saveImages: image Saved');
+				}
+			});
 		});
-		console.log(request)
-				resolve('debug');
 
-		// 画像fetch
-		fetchImage(request).then(() => {
-			// 終了したらカウントアップ、全件終了したらSlack投稿&resolveする
-			done += 1;
-			console.log('saveImages - done: %s / total: %s', done, mediaNum);
-			if (done >= mediaNum) {
-				postSlack(generateSlackPayload(slackText));
-				resolve('image Saved');
-			}
-		});
 	});
 }
 
@@ -247,7 +319,7 @@ const processFav = (tweets) => {
 const fetchFav = () => {
 	const endpoint = 'favorites/list.json';
 	const params = config.get('twtr');
-	params.count = 20;
+	params.count = 1;
 
 	return new Promise((resolve, reject) => {
 		twtr_client.get(endpoint , params, function(error, tweets, response){
@@ -264,11 +336,7 @@ const fetchFav = () => {
 
 exports.handler = (event, context, callback) => {
 	const payload = generateSlackPayload('hoge');
-	// fetchFav().then(ret => { console.log(ret); }).catch(err => { console.log(err); });
-	const data = [
-	{ id: '836067709632720896', url: 'https://pbs.twimg.com/media/C5pPJvjVMAAt7jV.jpg' },
-	{ id: '834026385689554945', url: 'https://pbs.twimg.com/media/C5MOlDRUMAEPOA5.jpg' }
-	];
-	saveImages(data, 'niltea', 'slackText').then(ret => { console.log(ret); }).catch(err => { console.log(err); });
+	fetchFav().then(ret => { console.log(ret); }).catch(err => { console.log(err); });
+	// saveImages(data, 'niltea', 'slackText').then(ret => { console.log(ret); }).catch(err => { console.log(err); });
 };
 
