@@ -121,6 +121,26 @@ const postSlack = (payload) => {
 	});
 };
 
+// select the highest bitrate video.
+const videoSelector = media => {
+	let hay = {};
+	media.video_info.variants.forEach((item, i) => {
+		if (item.content_type !== 'video/mp4') return;
+		if (hay.bitrate === void 0 || hay.bitrate < item.bitrate) { hay = item; }
+	});
+	return hay.url;
+};
+
+// pop media
+const mediaGetter = media => {
+	let media_arr = [];
+	media.forEach((item, i) => {
+		const url = (item.type === 'video') ? videoSelector(item) : item.media_url_https;
+		media_arr.push({id: item.id_str, url: url});
+	});
+	return media_arr;
+};
+
 // fav iteretor
 const processFav = (tweets) => {
 	const _conf = config.get('twtr');
@@ -140,14 +160,15 @@ const processFav = (tweets) => {
 
 		// get media
 		const extended_entities = tweet.extended_entities;
-		const media = extended_entities ? extended_entities.media : null;
-		// const media_arr = mediaGetter(media);
+		const media_arr = extended_entities ? mediaGetter(extended_entities.media) : null;
 
 		const text = '@' + _conf.screen_name + 'でfavした画像だよー\n' + tweet_url;
 		const payload = generateSlackPayload(text);
 
 		// 画像があればsave
-		// if(media_arr) { saveImages(media_arr, screen_name , is_nsfw, payload); }
+		if(media_arr) {
+			// saveImages(media_arr, screen_name , is_nsfw, payload);
+		}
 	});
 };
 
