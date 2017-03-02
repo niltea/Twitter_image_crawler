@@ -4,12 +4,14 @@
   "main": "index.js",
   "dependencies": {
     "aws-sdk": "^2.22.0",
-    "request": "^2.79.0",
-    "twitter": "^1.7.0"
+    "https": "^1.0.0",
+    "request-promise": "^4.1.1",
+    "twitter": "^1.7.0",
+    "url": "^0.11.0"
   },
   "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node test.js",
     "start": "node index.js"
   },
   "repository": "git+https://niltea@github.com/niltea/Twitter_image_crawler.git",

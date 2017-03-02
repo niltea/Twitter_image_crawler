@@ -16,7 +16,9 @@ const AWS = require('aws-sdk');
 // const twitter = require('twitter');
 // const twtr_client = new twitter(credentials);
 // const qs = require('querystring');
-const request = require('request');
+// const request = require('request-promise');
+const url = require('url');
+const https = require('https');
 // const fs = require('fs');
 
 // config setter
@@ -47,7 +49,7 @@ const config = (() => {
 		console.log(_conf);
 		return true;
 	};
-	return {set, get, list}
+	return {set:set, get:get, list:list};
 })();
 
 // define config
@@ -84,28 +86,44 @@ const aws_s3 = new AWS.S3();
 
 // slack payload generator
 const generateSlackPayload = (text) => {
-	const {icon_url, channel, username} = config.get('slack');
-	return {icon_url, channel, username, text};
+	const _c = config.get('slack');
+	return {icon_url:_c.icon_url, channel:_c.channel, username:_c.username, text:text};
 };
 // post to Slack
 const postSlack = (payload) => {
+	const body = JSON.stringify(payload);
 	const webhook_URL = config.get('slack').webhook_URL;
-	const options = {
-		uri: webhook_URL,
-		headers: {
-			'Content-Type':'application/json'
-		},
-		json: payload
-	}
-	request.post(options, (error, response, body) => {
-		if (response.body === 'ok') {
-			return 'success';
-		} else {
-			return 'error';
-			console.log(error);
-		}
+	const Sendoptions = url.parse(webhook_URL);
+	Sendoptions.method = 'POST';
+	Sendoptions.headers = {
+		'Content-Type': 'application/json',
+		'Content-Length': Buffer.byteLength(body),
+	};
+	return new Promise((resolve, reject) => {
+		const postReq = https.request(Sendoptions, (res) => {
+			const chunks = [];
+			res.setEncoding('utf8');
+			res.on('data', (chunk) => chunks.push(chunk));
+			res.on('end', () => {
+				if (res.statusCode == 200) {
+					resolve('OK');
+				} else {
+					reject(res.statusCode);
+				}
+			});
+			return;
+		});
+		postReq.write(body);
+		postReq.end();
 	});
 };
 
-const payload = generateSlackPayload('hoge');
-postSlack(payload);
+exports.handler = (event, context, callback) => {
+	const payload = generateSlackPayload('hoge');
+	postSlack(payload).then(ret => {
+		console.log(ret);
+	}).catch(err => {
+		console.log(err);
+	});
+};
+
