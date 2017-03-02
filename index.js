@@ -13,8 +13,7 @@ const watchdog = (() => {
 
 // load modules
 const AWS = require('aws-sdk');
-// const twitter = require('twitter');
-// const twtr_client = new twitter(credentials);
+const twitter = require('twitter');
 // const qs = require('querystring');
 // const request = require('request-promise');
 const url = require('url');
@@ -58,11 +57,7 @@ config.set([
 	key: 'twtr',
 	value: {
 		twitter_url: 'https://twitter.com/',
-		targetID:   process.env.twtr_targetID,
-		c_key:      process.env.twtr_consumer_key,
-		c_secret:   process.env.twtr_consumer_secret,
-		a_t_key:    process.env.twtr_access_token_key,
-		a_t_secret: process.env.twtr_access_token_secret
+		screen_name: process.env.twtr_targetID
 	}
 },
 {
@@ -76,11 +71,19 @@ config.set([
 }
 ]);
 
+// set Twitter config
+const twtr_client = new twitter({
+	consumer_key:        process.env.twtr_consumer_key,
+	consumer_secret:     process.env.twtr_consumer_secret,
+	access_token_key:    process.env.twtr_access_token_key,
+	access_token_secret: process.env.twtr_access_token_secret
+});
+
 // set AWS config
 AWS.config.update({
 	accessKeyId:     process.env.aws_accessKeyId,
-	secretAccessKey: process.env.aws_targetID,
-	region:          process.env.aws_consumer_key
+	secretAccessKey: process.env.aws_secretAccessKey,
+	region:          process.env.aws_region
 });
 const aws_s3 = new AWS.S3();
 
@@ -118,9 +121,56 @@ const postSlack = (payload) => {
 	});
 };
 
+// fav iteretor
+const processFav = (tweets) => {
+	const _conf = config.get('twtr');
+	const tweetsNum = tweets.length;
+	if (tweetsNum <= 0) {
+		if (watchdog) {
+			postSlack(generateSlackPayload('watchdog: works fine.'));
+		}
+		console.log('no new tweet found.');
+		return true;
+	}
+	tweets.forEach((tweet, i) => {
+		// get meta
+		const user = tweet.user;
+		const screen_name = user.screen_name;
+		const tweet_url = _conf.twitter_url + screen_name + '/status/' + tweet.id_str;
+
+		// get media
+		const extended_entities = tweet.extended_entities;
+		const media = extended_entities ? extended_entities.media : null;
+		// const media_arr = mediaGetter(media);
+
+		const text = '@' + _conf.screen_name + 'でfavした画像だよー\n' + tweet_url;
+		const payload = generateSlackPayload(text);
+
+		// 画像があればsave
+		// if(media_arr) { saveImages(media_arr, screen_name , is_nsfw, payload); }
+	});
+};
+
+const fetchFav = () => {
+	const endpoint = 'favorites/list.json';
+	const params = config.get('twtr');
+	params.count = 20;
+
+	return new Promise((resolve, reject) => {
+		twtr_client.get(endpoint , params, function(error, tweets, response){
+			if (error) {
+				reject('ERR on twitter');
+				return false;
+			}
+			processFav(tweets);
+			resolve('ok');
+		});
+	});
+};
+
 exports.handler = (event, context, callback) => {
 	const payload = generateSlackPayload('hoge');
-	postSlack(payload).then(ret => {
+	fetchFav().then(ret => {
 		console.log(ret);
 	}).catch(err => {
 		console.log(err);
