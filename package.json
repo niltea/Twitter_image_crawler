@@ -1,0 +1,23 @@
+{
+  "name": "Twitter_image_crawler",
+  "version": "0.1",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.22.0",
+    "request": "^2.79.0",
+    "twitter": "^1.7.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "repository": "git+https://niltea@github.com/niltea/Twitter_image_crawler.git",
+  "author": "niltea <futurabodoni@gmail.com>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/niltea/Twitter_image_crawler/issues"
+  },
+  "homepage": "https://github.com/niltea/Twitter_image_crawler#readme",
+  "description": "Twitter image crawler on node.js"
+}
