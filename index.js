@@ -2,6 +2,7 @@
 
 // currently hardcording...
 const is_saveLocal = false;
+const imgPath = 'images/';
 
 //set watchdog is true when 0:00-0:09 and 12:00-12:09
 const watchdog = (() => {
@@ -94,6 +95,7 @@ const generateSlackPayload = (text) => {
 };
 // post to Slack
 const postSlack = (payload) => {
+console.log(payload);return;
 	const body = JSON.stringify(payload);
 	const webhook_URL = config.get('slack').webhook_URL;
 	const Sendoptions = url.parse(webhook_URL);
@@ -121,6 +123,69 @@ const postSlack = (payload) => {
 	});
 };
 
+const setRequest = (media, screen_name) => {
+	if (media.url === void 0) { return false; }
+	// set fileName
+	const dest = imgPath + screen_name + '/';
+	const ext = media.url.match(/\.[a-zA-Z0-9]+$/)[0];
+	const fileName = media.id + ext;
+	let contentType = '';
+	switch (ext) {
+		case '.jpg': contentType = 'image/jpeg';  break;
+		case '.gif': contentType = 'image/gif';   break;
+		case '.png': contentType = 'image/png';   break;
+		case '.bmp': contentType = 'image/x-bmp'; break;
+		case '.mp4': contentType = 'video/mp4';   break;
+	}
+
+	const query = {
+		url: media.url,
+		method: 'GET',
+		encoding: null,
+		headers: { 'User-Agent': 'Twitter image crawler on node.js http://nilgiri-tea.net/' }
+	};
+	const fileMeta = {
+		ext : ext,
+		dest : dest,
+		fileName : fileName,
+		objectProp : {
+			Bucket: 'niltea-twitter',
+			Key  : dest + fileName,
+			ContentType : contentType
+		}
+	};
+	return {query, fileMeta, postSlack: false};
+};
+
+// tweet単位でarrayに格納されたid/urlから画像保存
+const saveImages = (media_arr, screen_name, slackText) => {
+	const mediaNum = media_arr.length;
+	let done = 0;
+	let request = [];
+	return new Promise((resolve, reject) => {
+		if (mediaNum === 0) resolve();
+
+		// requestデータを積む
+		media_arr.forEach((media, i) => {
+			const _requestItem = setRequest(media, screen_name);
+			if (_requestItem) request.push(_requestItem);
+		});
+		console.log(request)
+				resolve('debug');
+
+		// 画像fetch
+		fetchImage(request).then(() => {
+			// 終了したらカウントアップ、全件終了したらSlack投稿&resolveする
+			done += 1;
+			console.log('saveImages - done: %s / total: %s', done, mediaNum);
+			if (done >= mediaNum) {
+				postSlack(generateSlackPayload(slackText));
+				resolve('image Saved');
+			}
+		});
+	});
+}
+
 // select the highest bitrate video.
 const videoSelector = media => {
 	let hay = {};
@@ -145,30 +210,37 @@ const mediaGetter = media => {
 const processFav = (tweets) => {
 	const _conf = config.get('twtr');
 	const tweetsNum = tweets.length;
-	if (tweetsNum <= 0) {
-		if (watchdog) {
-			postSlack(generateSlackPayload('watchdog: works fine.'));
+	let done = 0;
+	return new Promise((resolve, reject) => {
+		if (tweetsNum <= 0) {
+			if (watchdog) {
+				postSlack(generateSlackPayload('watchdog: works fine.'));
+			}
+			resolve('no new tweet found.');
 		}
-		console.log('no new tweet found.');
-		return true;
-	}
-	tweets.forEach((tweet, i) => {
-		// get meta
-		const user = tweet.user;
-		const screen_name = user.screen_name;
-		const tweet_url = _conf.twitter_url + screen_name + '/status/' + tweet.id_str;
+		tweets.forEach((tweet, i) => {
+			// get meta
+			const user = tweet.user;
+			const screen_name = user.screen_name;
+			const tweet_url = _conf.twitter_url + screen_name + '/status/' + tweet.id_str;
 
-		// get media
-		const extended_entities = tweet.extended_entities;
-		const media_arr = extended_entities ? mediaGetter(extended_entities.media) : null;
+			// get media
+			const extended_entities = tweet.extended_entities;
+			const slackText = '@' + _conf.screen_name + 'でfavした画像だよー\n' + tweet_url;
+			// media_arr = [{id: media_id, url: url}, {}, ...];
+			const media_arr = extended_entities ? mediaGetter(extended_entities.media) : null;
 
-		const text = '@' + _conf.screen_name + 'でfavした画像だよー\n' + tweet_url;
-		const payload = generateSlackPayload(text);
-
-		// 画像があればsave
-		if(media_arr) {
-			// saveImages(media_arr, screen_name , is_nsfw, payload);
-		}
+			// 画像save
+			saveImages(media_arr, screen_name, slackText)
+			.then(() => {
+				// 終了したらカウントアップ、全件終了したらresolveする
+				done += 1;
+				console.log('done: %s / total: %s',done ,tweetsNum);
+				if (done >= tweetsNum) {
+					resolve('saveImages: finished');
+				}
+			});
+		});
 	});
 };
 
@@ -183,18 +255,20 @@ const fetchFav = () => {
 				reject('ERR on twitter');
 				return false;
 			}
-			processFav(tweets);
-			resolve('ok');
+			processFav(tweets).then(() => {
+				resolve('fetchFav: ok');
+			});
 		});
 	});
 };
 
 exports.handler = (event, context, callback) => {
 	const payload = generateSlackPayload('hoge');
-	fetchFav().then(ret => {
-		console.log(ret);
-	}).catch(err => {
-		console.log(err);
-	});
+	// fetchFav().then(ret => { console.log(ret); }).catch(err => { console.log(err); });
+	const data = [
+	{ id: '836067709632720896', url: 'https://pbs.twimg.com/media/C5pPJvjVMAAt7jV.jpg' },
+	{ id: '834026385689554945', url: 'https://pbs.twimg.com/media/C5MOlDRUMAEPOA5.jpg' }
+	];
+	saveImages(data, 'niltea', 'slackText').then(ret => { console.log(ret); }).catch(err => { console.log(err); });
 };
 
